@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ads Manager</title>
+    <style>
+        .ad-container { margin: 20px; padding: 20px; border: 1px solid #ccc; }
+        .ad { margin-bottom: 10px; }
+        .status-button { padding: 10px; cursor: pointer; }
+        .edit-button { padding: 10px; cursor: pointer; }
+        .active { background-color: green; color: white; }
+        .inactive { background-color: red; color: white; }
+        .edit-container { display: none; margin-top: 20px; }
+    </style>
+</head>
+<body>
+    <div id="ads-container"></div>
+    <script>
+        const apiKey = 'AIzaSyBhiqVypmyLHYPmqZYtvdSvxEopcLZBdYU';
+        const spreadsheetId = '1Up7BMLBraHbwH1NPQdV15b8-b2igMKxFzJHeLsPFTrY';
+        const range = 'ads!A1:E100';
+        let adsData = [];
+
+        function fetchAdsData() {
+            fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${range}?key=${apiKey}`)
+                .then(response => response.json())
+                .then(data => {
+                    adsData = data.values.slice(1).map((row, index) => ({
+                        rowIndex: index + 2, // To match the row index in Google Sheets
+                        Ads: row[0],
+                        ImgUrl: `https://drive.google.com/thumbnail?id=${row[1].match(/[-\w]{25,}/)}&sz=w1000`,
+                        Title: row[2],
+                        Subtitle: row[3],
+                        Status: row[4]
+                    }));
+                    renderAds();
+                });
+        }
+
+        function createAdElement(ad, index) {
+            const adContainer = document.createElement('div');
+            adContainer.className = 'ad-container';
+            adContainer.innerHTML = `
+                <div class="ad">
+                    <img src="${ad.ImgUrl}" alt="Ad Image" width="100">
+                    <h3>${ad.Title}</h3>
+                    <p>${ad.Subtitle}</p>
+                    <button class="status-button ${ad.Status}" onclick="toggleStatus(${index})">${ad.Status === 'active' ? 'مشغل' : 'ملغى'}</button>
+                    <button class="edit-button" onclick="editAd(${index})">تعديل</button>
+                </div>
+                <div class="edit-container" id="edit-container-${index}">
+                    <h3>تعديل الإعلان</h3>
+                    <label>عنوان:
+                        <input type="text" id="title-${index}" value="${ad.Title}">
+                    </label>
+                    <br>
+                    <label>العنوان الفرعي:
+                        <input type="text" id="subtitle-${index}" value="${ad.Subtitle}">
+                    </label>
+                    <br>
+                    <img src="${ad.ImgUrl}" alt="Ad Image" width="100" id="preview-${index}">
+                    <br>
+                    <input type="file" id="file-${index}" onchange="previewImage(${index})">
+                    <br>
+                    <button onclick="updateAd(${index})">تحديث البيانات</button>
+                </div>
+            `;
+            return adContainer;
+        }
+
+        function renderAds() {
+            const adsContainer = document.getElementById('ads-container');
+            adsContainer.innerHTML = '';
+            adsData.forEach((ad, index) => {
+                adsContainer.appendChild(createAdElement(ad, index));
+            });
+        }
+
+        function toggleStatus(index) {
+            const ad = adsData[index];
+            ad.Status = ad.Status === 'active' ? 'inactive' : 'active';
+            renderAds();
+            updateSheet(ad, ad.rowIndex);
+        }
+
+        function editAd(index) {
+            document.querySelectorAll('.edit-container').forEach(container => {
+                container.style.display = 'none';
+            });
+            document.getElementById(`edit-container-${index}`).style.display = 'block';
+        }
+
+        function updateAd(index) {
+            const title = document.getElementById(`title-${index}`).value;
+            const subtitle = document.getElementById(`subtitle-${index}`).value;
+            const preview = document.getElementById(`preview-${index}`).src;
+            adsData[index].Title = title;
+            adsData[index].Subtitle = subtitle;
+            adsData[index].ImgUrl = preview;
+            document.getElementById(`edit-container-${index}`).style.display = 'none';
+            renderAds();
+            updateSheet(adsData[index], adsData[index].rowIndex);
+        }
+
+        function updateSheet(ad, rowIndex) {
+            const payload = {
+                rowIndex: rowIndex,
+                ImgUrl: ad.ImgUrl,
+                Title: ad.Title,
+                Subtitle: ad.Subtitle,
+                Status: ad.Status
+            };
+            fetch('https://script.google.com/macros/s/AKfycbyIZyBrnFMQPybxfn0aVCWbMe8XGsp3S97EoxmfcTYNqYwvfJXwZBzcdUHgrJnmJKTiww/exec', {
+                method: 'POST',
+                body: JSON.stringify(payload),
+                headers: { 'Content-Type': 'application/json' }
+            });
+        }
+
+        function previewImage(index) {
+            const fileInput = document.getElementById(`file-${index}`);
+            const file = fileInput.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onloadend = function () {
+                    document.getElementById(`preview-${index}`).src = reader.result;
+                    uploadImage(file, index);
+                };
+                reader.readAsDataURL(file);
+            }
+        }
+
+        function uploadImage(file, index) {
+            const reader = new FileReader();
+            reader.onload = function (e) {
+                const base64String = e.target.result.split(',')[1];
+                const fileName = `ad_${index}_${Date.now()}.jpg`;
+
+                google.script.run.withSuccessHandler(function (url) {
+                    adsData[index].ImgUrl = url;
+                    document.getElementById(`preview-${index}`).src = url;
+                }).uploadImageToDrive(base64String, fileName);
+            };
+            reader.readAsDataURL(file);
+        }
+
+        window.onload = fetchAdsData;
+    </script>
+</body>
+</html>
